@@ -1,0 +1,2 @@
+Just a plain text fixture with a few ordinary sentences.
+Second line.
