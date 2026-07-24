@@ -1,0 +1,5 @@
+This document exercises the plain text extractor.
+
+It has a few short paragraphs separated by blank lines.
+
+This is the third and final paragraph.
