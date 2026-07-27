@@ -22,7 +22,7 @@ hardware, models, and configurations, including ones that perform worse.
 - [x] Phase 0 — Scaffold
 - [x] Phase 1 — Document type detection
 - [x] Phase 2 — Extraction router
-- [ ] Phase 3 — Structure-aware chunking
+- [x] Phase 3 — Structure-aware chunking
 - [ ] Phase 4 — Indexing and storage
 - [ ] Phase 5 — Retrieval
 - [ ] Phase 6 — Answering with span citations
@@ -67,6 +67,7 @@ src/sdr/            application package
   logging_setup.py    logging configuration
   detection/           document-type detection from file content
   extraction/           format-appropriate extraction + quality reporting
+  chunking/              structure-aware + naive-baseline chunkers
 scripts/             one-off scripts (e.g. fixture generation)
 tests/               pytest suite
 ```
@@ -150,6 +151,39 @@ Tests live in `tests/test_extraction.py` against fixtures in
 columns wrong), a captioned ruled-line table PDF, an image-only PDF with
 real rendered text (for the OCR path), and matching structured DOCX/HTML
 fixtures.
+
+## Chunking (Phase 3)
+
+`sdr.chunking` turns an `ExtractedDocument`'s blocks into `Chunk`s
+(`text`, `source_document`, `page`, `section_path`, `char_start`/`char_end`,
+`from_table`, `chunk_index`, `strategy`). Both chunkers below key their char
+spans off the same canonical flattened-document text
+(`flatten_document()`), so their spans are directly comparable.
+
+- **`chunk_structure_aware(document, max_chars=1200)`**: chunks on semantic
+  boundaries. A table is always its own chunk and is never merged with
+  surrounding text or split. A heading always starts a new chunk. Paragraphs
+  accumulate into the current chunk until adding the next one would exceed
+  `max_chars` — a soft target, not a hard cutoff: a single paragraph or
+  table bigger than the budget still becomes one chunk rather than being
+  split mid-unit. A heading immediately followed by a table (nothing to
+  pair it with) is dropped rather than emitted as a content-free chunk;
+  section metadata still reaches the table via its own extraction-time
+  `section_path`.
+- **`chunk_naive(document, chunk_size=1000, overlap=100)`**: the
+  deliberately naive baseline the spec calls for — a fixed-size sliding
+  window over the flattened text with zero awareness of paragraphs, tables,
+  or sections. Its metadata (page/section/`from_table`) is a best-effort
+  guess (whichever source block the window overlaps most), which is
+  approximate by construction. This isn't a fallback path; it exists so
+  Phase 7 can measure the structure-aware chunker against something.
+
+`max_chars` / `chunk_size` are unvalidated defaults, not tuned numbers —
+no chunk-size sweep has been run. Tests
+(`tests/test_chunking.py`) reuse Phase 2's fixtures directly (no new
+binary fixtures needed) and include a concrete demonstration of the
+failure mode this project is about: `table.pdf`'s table survives whole
+under `chunk_structure_aware` but gets split under `chunk_naive`.
 
 ## Design decisions carried forward from planning
 
