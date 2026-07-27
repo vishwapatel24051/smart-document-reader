@@ -23,7 +23,7 @@ hardware, models, and configurations, including ones that perform worse.
 - [x] Phase 1 — Document type detection
 - [x] Phase 2 — Extraction router
 - [x] Phase 3 — Structure-aware chunking
-- [ ] Phase 4 — Indexing and storage
+- [x] Phase 4 — Indexing and storage
 - [ ] Phase 5 — Retrieval
 - [ ] Phase 6 — Answering with span citations
 - [ ] Phase 7 — Evaluation harness
@@ -34,6 +34,9 @@ hardware, models, and configurations, including ones that perform worse.
 
 - Python 3.11+
 - Docker (for Postgres + pgvector; `docker compose up`)
+- Internet on first run only, to download the embedding model weights and
+  (if you don't already have it) the `pgvector/pgvector:pg16` image;
+  everything is local/offline after that.
 
 ## Setup
 
@@ -45,14 +48,22 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest
+pytest                          # fast: no DB, no real model, 9 tests skip
+docker compose up -d db         # start just Postgres+pgvector for local dev
+SDR_RUN_SLOW_TESTS=1 pytest     # full run: DB + real embedding model, 0 skipped
 ```
+
+`SDR_RUN_SLOW_TESTS=1` opts into tests that hit a real Postgres and
+download/run the real embedding model - kept opt-in so a plain `pytest`
+stays fast and offline. DB-dependent tests skip individually (with a clear
+reason) if Postgres isn't reachable, regardless of that flag.
 
 ## Running with Docker
 
 ```bash
 docker compose up -d
 docker compose exec app pytest
+SDR_RUN_SLOW_TESTS=1 docker compose exec app pytest   # full run, inside the container
 ```
 
 This starts Postgres with the pgvector extension (`db`) and an app
@@ -68,6 +79,9 @@ src/sdr/            application package
   detection/           document-type detection from file content
   extraction/           format-appropriate extraction + quality reporting
   chunking/              structure-aware + naive-baseline chunkers
+  storage/               Postgres schema, connection handling, repository
+  embedding/             local embedding model wrapper
+  ingest.py              orchestrates detect -> extract -> chunk -> embed -> store
 scripts/             one-off scripts (e.g. fixture generation)
 tests/               pytest suite
 ```
@@ -185,11 +199,75 @@ binary fixtures needed) and include a concrete demonstration of the
 failure mode this project is about: `table.pdf`'s table survives whole
 under `chunk_structure_aware` but gets split under `chunk_naive`.
 
+## Indexing and storage (Phase 4)
+
+`sdr.ingest.ingest_document(path, conn)` runs detect → extract → chunk
+(structure-aware) → embed → store, and returns an `IngestOutcome(status,
+document_id, chunks_indexed, reason)` where `status` is `indexed`,
+`skipped_unchanged`, or `failed`. It never raises.
+
+- **Incremental indexing**: each document's raw bytes are SHA-256 hashed.
+  If the stored hash for that `source_path` already matches, ingestion
+  skips immediately — no extraction, chunking, embedding, or writes.
+  Re-ingesting a *changed* document only deletes and reinserts *that
+  document's* chunk rows (`repository.replace_chunks`, scoped by
+  `document_id`); no other document's rows are touched. Verified directly:
+  `tests/test_ingest.py::test_reingesting_a_changed_document_does_not_touch_other_documents`
+  ingests two documents, changes one, and asserts the other's chunk count
+  is unchanged after re-ingesting.
+- **Schema** (`sdr/storage/schema.sql`): `documents` (one row per source
+  file, content hash, extraction quality fields) and `chunks` (one row per
+  chunk, `vector(384)` embedding column, generated `tsvector` column for
+  lexical search). Applied idempotently (`CREATE TABLE IF NOT EXISTS` etc.)
+  on every connection via `ensure_schema()` — no separate migration step
+  or tool for this project's scope.
+- **Dense embeddings**: `sentence-transformers`, local model
+  (`BAAI/bge-small-en-v1.5`, 384-dim, overridable via `EMBEDDING_MODEL` —
+  changing it means changing the schema's `vector(384)` column too, they're
+  coupled). Vectors are L2-normalized so pgvector's cosine index applies
+  cleanly. **First use downloads the model weights from Hugging Face** (a
+  few hundred MB) — the only point in the ingestion/retrieval path that
+  needs internet; fully offline afterward, cached under the container/host
+  Hugging Face cache.
+- **Lexical index**: Postgres `tsvector` (generated column) + GIN index,
+  decided over a Python BM25 library or a specialized extension — it's
+  persisted, updates incrementally with no extra code, and needs no new
+  dependency. **Named honestly, not as BM25**: ranking will use Postgres's
+  own `ts_rank_cd`, not the Okapi BM25 formula. This project still calls
+  the concept "lexical search" rather than "BM25" wherever it means this.
+- **Why Postgres tsvector over rank_bm25 or a BM25 Postgres extension**:
+  this was a real fork, and I asked before building — Postgres tsvector
+  was chosen for being persisted and incrementally maintained by Postgres
+  itself, at zero extra operational cost for a solo local project. A true
+  BM25 library remains a documented option if retrieval quality later
+  demands it.
+
+**Fully verified against a live database**, not just unit-tested against
+mocks: Postgres wasn't reachable in this environment by default (Docker
+daemon wasn't running, and a docker-compose port conflict I hit along the
+way, see below), so I started Docker, brought up the `db` service, and ran
+every DB- and model-dependent test for real — 45/45 passed, zero skipped.
+Two real bugs were only caught this way:
+1. `register_vector()` (the pgvector type adapter) was being called before
+   `ensure_schema()` — it failed on a fresh database because the `vector`
+   type doesn't exist until `CREATE EXTENSION` has run. Fixed by ensuring
+   schema first, both in `db.get_connection()` and in the test fixture.
+2. The default port mapping (`5432:5432`) collided with an unrelated,
+   already-running native Postgres install on this machine. Since that's a
+   common situation for anyone with a local Postgres, the fix is a general
+   one: `docker-compose.yml` now maps the `db` service to host port 5433 by
+   default (`POSTGRES_HOST_PORT` to override), and `.env.example` matches.
+   Internal app↔db traffic inside docker compose is unaffected either way.
+
+Tests: `tests/test_storage.py` (schema, upsert/lookup, chunk-replacement
+isolation — DB only, no embedding model needed) and `tests/test_ingest.py`
+/ the real-model case in `tests/test_embedding.py` (full pipeline — DB
+*and* the real model). Both gate gracefully: `tests/conftest.py`'s `pg_conn`
+fixture skips with a clear message if Postgres isn't reachable, and the
+model-dependent tests are behind `SDR_RUN_SLOW_TESTS=1` so a plain `pytest`
+run stays fast and offline by default.
+
 ## Design decisions carried forward from planning
 
-- Embeddings: sentence-transformers, local model
-  (`BAAI/bge-small-en-v1.5` by default, overridable via `EMBEDDING_MODEL`).
 - Answering LLM: Ollama as the default local backend, to keep ingestion and
   retrieval runnable with no paid API.
-- BM25 implementation (Postgres `tsvector` vs. a standalone library) is an
-  open decision, deferred to Phase 4/5.

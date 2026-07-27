@@ -6,8 +6,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-sdr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sdr}
       POSTGRES_DB: ${POSTGRES_DB:-sdr}
+    # Host-side port defaults to 5433, not 5432: a locally-installed Postgres
+    # (Postgres.app, brew, etc.) commonly already owns 5432, and that
+    # conflict has nothing to do with this project. Internal app<->db
+    # traffic is unaffected either way - it always uses the container's
+    # actual port 5432 over the docker network.
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +29,10 @@ services:
     env_file:
       - .env
     environment:
+      # Always correct for container-to-container traffic, regardless of
+      # whatever POSTGRES_HOST/POSTGRES_PORT ends up in .env for local use.
       POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
     volumes:
       - ./:/app
     # Placeholder until Phase 8 adds the FastAPI service; keeps the
