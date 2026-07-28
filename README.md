@@ -24,7 +24,7 @@ hardware, models, and configurations, including ones that perform worse.
 - [x] Phase 2 — Extraction router
 - [x] Phase 3 — Structure-aware chunking
 - [x] Phase 4 — Indexing and storage
-- [ ] Phase 5 — Retrieval
+- [x] Phase 5 — Retrieval
 - [ ] Phase 6 — Answering with span citations
 - [ ] Phase 7 — Evaluation harness
 - [ ] Phase 8 — API and interface
@@ -34,9 +34,10 @@ hardware, models, and configurations, including ones that perform worse.
 
 - Python 3.11+
 - Docker (for Postgres + pgvector; `docker compose up`)
-- Internet on first run only, to download the embedding model weights and
-  (if you don't already have it) the `pgvector/pgvector:pg16` image;
-  everything is local/offline after that.
+- Internet on first run only, to download the embedding model weights, the
+  cross-encoder reranking model (if `RETRIEVAL_RERANK=true`), and (if you
+  don't already have it) the `pgvector/pgvector:pg16` image; everything is
+  local/offline after that.
 
 ## Setup
 
@@ -81,6 +82,7 @@ src/sdr/            application package
   chunking/              structure-aware + naive-baseline chunkers
   storage/               Postgres schema, connection handling, repository
   embedding/             local embedding model wrapper
+  retrieval/              dense / lexical / hybrid search + optional reranking
   ingest.py              orchestrates detect -> extract -> chunk -> embed -> store
 scripts/             one-off scripts (e.g. fixture generation)
 tests/               pytest suite
@@ -266,6 +268,57 @@ isolation — DB only, no embedding model needed) and `tests/test_ingest.py`
 fixture skips with a clear message if Postgres isn't reachable, and the
 model-dependent tests are behind `SDR_RUN_SLOW_TESTS=1` so a plain `pytest`
 run stays fast and offline by default.
+
+## Retrieval (Phase 5)
+
+`sdr.retrieval.search(conn, query, k=10, strategy=None, rerank=None)` is
+the one interface dense, lexical, and hybrid retrieval sit behind —
+`strategy` defaults to `settings.retrieval_strategy` ("hybrid") and
+`rerank` to `settings.retrieval_rerank` (off), but both can be overridden
+per call, which is what Phase 7's benchmark matrix will do to run the same
+query through every configuration. Every path returns
+`list[RetrievedChunk]` (`chunk_id`, `document_id`, `source_document`,
+`text`, `page`, `section_path`, `char_start`/`char_end`, `from_table`,
+`score`, `rank`) — the same shape regardless of strategy.
+
+- **`search_dense`**: embeds the query with the same local model used at
+  ingest time, orders chunks by pgvector cosine distance (`<=>`).
+- **`search_lexical`**: Postgres `websearch_to_tsquery` (tolerant of
+  arbitrary user input, never raises on unusual characters) against the
+  `tsv` column, ranked by `ts_rank_cd` — again, Postgres's own ranking
+  function, not Okapi BM25 (see Phase 4).
+- **`search_hybrid`**: fuses dense + lexical via Reciprocal Rank Fusion
+  (`score += 1 / (60 + rank)` per list, `60` being the standard constant
+  from the original RRF paper, not tuned here). RRF combines by *rank*, not
+  raw score, specifically because cosine similarity and `ts_rank_cd` are on
+  incomparable scales — fusing by score would need a normalization scheme
+  neither retriever's numbers are designed for.
+- **`rerank(query, candidates, top_k)`**: optional second-stage
+  cross-encoder (`cross-encoder/ms-marco-MiniLM-L-6-v2` by default) that
+  scores query/chunk pairs jointly — more accurate than independent
+  dense/lexical scoring, too slow to run over a whole corpus, so it only
+  reorders a small candidate pool. Behind the `rerank` flag/setting, per
+  the spec.
+
+**Real bug caught during live verification** (not by a mock): a bare
+`c.embedding <=> %(query_vector)s` comparison silently sent the Python
+embedding list as `float8[]`, not `vector`, and Postgres had no matching
+`<=>` overload — `UndefinedFunction`. This didn't show up in Phase 4
+because an `INSERT`'s target column type disambiguates the parameter type
+server-side; a bare comparison in a `WHERE`/`ORDER BY` doesn't give
+psycopg's client-side type adapter the same hint. Fixed with an explicit
+`%(query_vector)s::vector` cast in `dense.py`'s SQL.
+
+**Verified live**, again: `tests/test_retrieval.py` ingests a small,
+deliberately distinct 3-document corpus (cats / finance / weather) and
+checks concrete, falsifiable behavior rather than just "it returns
+something" — lexical search finds an exact keyword match; dense search
+finds a paraphrase with **zero literal word overlap** with the target
+document; lexical search returns **nothing** for that same paraphrase
+(demonstrating exactly the gap hybrid exists to close); hybrid surfaces the
+dense-only match; reranking actually reorders a real candidate pool with
+a real cross-encoder. All 8 tests passed against live Postgres + real
+models, gated behind `SDR_RUN_SLOW_TESTS=1` like Phase 4's.
 
 ## Design decisions carried forward from planning
 

@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     log_level: str = "INFO"
 
+    # "dense", "lexical", or "hybrid" - the default retrieval path when
+    # sdr.retrieval.search() isn't given an explicit strategy. Phase 7's
+    # benchmark matrix overrides this per run rather than relying on it.
+    retrieval_strategy: str = "hybrid"
+    retrieval_rerank: bool = False
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
     @property
     def database_url(self) -> str:
         return (
