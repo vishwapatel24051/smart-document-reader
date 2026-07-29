@@ -21,6 +21,18 @@ services:
       timeout: 5s
       retries: 10
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    # Not published to a fixed host port by default: Ollama is commonly
+    # already installed and running natively on 11434 (same reason as the
+    # Postgres port above). OLLAMA_HOST_PORT overrides if you want host
+    # access to this containerized instance specifically.
+    ports:
+      - "${OLLAMA_HOST_PORT:-11435}:11434"
+
   app:
     build: .
     depends_on:
@@ -30,9 +42,11 @@ services:
       - .env
     environment:
       # Always correct for container-to-container traffic, regardless of
-      # whatever POSTGRES_HOST/POSTGRES_PORT ends up in .env for local use.
+      # whatever POSTGRES_HOST/POSTGRES_PORT/OLLAMA_HOST ends up in .env for
+      # local use.
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
+      OLLAMA_HOST: http://ollama:11434
     volumes:
       - ./:/app
     # Placeholder until Phase 8 adds the FastAPI service; keeps the
@@ -41,3 +55,4 @@ services:
 
 volumes:
   pgdata:
+  ollama_models:

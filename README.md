@@ -25,7 +25,7 @@ hardware, models, and configurations, including ones that perform worse.
 - [x] Phase 3 — Structure-aware chunking
 - [x] Phase 4 — Indexing and storage
 - [x] Phase 5 — Retrieval
-- [ ] Phase 6 — Answering with span citations
+- [x] Phase 6 — Answering with span citations
 - [ ] Phase 7 — Evaluation harness
 - [ ] Phase 8 — API and interface
 - [ ] Phase 9 — Benchmark report
@@ -33,10 +33,15 @@ hardware, models, and configurations, including ones that perform worse.
 ## Requirements
 
 - Python 3.11+
-- Docker (for Postgres + pgvector; `docker compose up`)
+- Docker (for Postgres + pgvector, and optionally Ollama; `docker compose up`)
+- [Ollama](https://ollama.com) with a model pulled, for Phase 6 answering -
+  natively installed (`ollama pull gemma2:2b`) or via the `ollama` compose
+  service (`docker compose exec ollama ollama pull gemma2:2b`). Nothing
+  else in the project needs it.
 - Internet on first run only, to download the embedding model weights, the
-  cross-encoder reranking model (if `RETRIEVAL_RERANK=true`), and (if you
-  don't already have it) the `pgvector/pgvector:pg16` image; everything is
+  cross-encoder reranking model (if `RETRIEVAL_RERANK=true`), the LLM
+  weights (`ollama pull`), and (if you don't already have them) the
+  `pgvector/pgvector:pg16` / `ollama/ollama` images; everything is
   local/offline after that.
 
 ## Setup
@@ -83,6 +88,7 @@ src/sdr/            application package
   storage/               Postgres schema, connection handling, repository
   embedding/             local embedding model wrapper
   retrieval/              dense / lexical / hybrid search + optional reranking
+  answering/              LLM answer generation + span citations + groundedness
   ingest.py              orchestrates detect -> extract -> chunk -> embed -> store
 scripts/             one-off scripts (e.g. fixture generation)
 tests/               pytest suite
@@ -320,7 +326,56 @@ dense-only match; reranking actually reorders a real candidate pool with
 a real cross-encoder. All 8 tests passed against live Postgres + real
 models, gated behind `SDR_RUN_SLOW_TESTS=1` like Phase 4's.
 
-## Design decisions carried forward from planning
+## Answering with span citations (Phase 6)
 
-- Answering LLM: Ollama as the default local backend, to keep ingestion and
-  retrieval runnable with no paid API.
+`sdr.answering.answer_query(conn, query, k=5, strategy=None, rerank=None,
+groundedness_threshold=0.4)` retrieves chunks (Phase 5), generates an
+answer with a local LLM via Ollama, splits it into sentences, and attaches
+a structured `Citation(document, page, char_start, char_end, chunk_id)` to
+each sentence that's lexically supported by a retrieved chunk. Returns an
+`Answer(query, sentences, raw_text, retrieved_chunk_ids)` — never raises on
+empty retrieval (returns an `Answer` with no sentences), but does let
+`httpx.HTTPError` propagate if Ollama isn't reachable, rather than
+pretending an answer was generated.
+
+**The groundedness check is a lexical-overlap heuristic, not verified
+hallucination detection — stated as plainly as possible in both the code
+and here.** `score_sentence(sentence, chunk_text)` is the fraction of a
+sentence's distinct words that also appear in a chunk's text. A sentence
+clears the groundedness threshold (default 0.4) and gets a citation for
+every chunk it overlaps that much with, capped at 2. This means:
+
+- A sentence can score high while asserting something the chunk doesn't
+  actually say (e.g. negating it, or stitching together two unrelated facts
+  that both happen to appear in the same chunk).
+- A sentence can score low while being a faithful, accurate rewording that
+  just uses different vocabulary than the source.
+
+"Grounded" here means "shares vocabulary with a retrieved passage," not
+"is factually correct." Nothing in this project's code, tests, or output
+should describe it otherwise.
+
+**Verified live**, same pattern as Phases 4/5: Ollama was already installed
+and running natively on this dev machine (`gemma2:2b`, 1.6GB, already
+pulled) — I used it directly rather than also spinning up the containerized
+`ollama` service. Asked "What is the capital of France?" against a small
+ingested document, the real pipeline produced `"Paris is the capital of
+France."` as a single sentence, scored 1.00 (full word overlap) and cited
+back to the correct source document and the chunk's exact char span. Asked
+a question the context couldn't answer, the model itself said so directly
+("The provided text does not contain information about...") and the
+groundedness check independently scored that sentence 0.29 — below
+threshold, `grounded=False` — for an unrelated reason (different
+vocabulary), which happens to agree with the model's own admission here but
+isn't the same check.
+`tests/test_answering.py` has 8 fast unit tests (sentence splitting,
+overlap scoring, prompt construction, the empty-retrieval path) plus one
+live end-to-end test gated behind `SDR_RUN_SLOW_TESTS=1` and a new
+`ollama_ready` fixture (skips with a clear reason if Ollama isn't
+reachable, same pattern as the Postgres `pg_conn` fixture).
+
+`docker-compose.yml` now also has an `ollama` service (image
+`ollama/ollama`) for a fully self-contained `docker compose up`, not
+published to a fixed host port by default (`OLLAMA_HOST_PORT` to override)
+for the same reason as the Postgres port: Ollama is commonly already
+running natively on 11434.

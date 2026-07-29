@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+import httpx
 import psycopg
 import pytest
 
@@ -27,3 +28,12 @@ def pg_conn() -> Iterator[psycopg.Connection]:
         yield conn
     finally:
         conn.close()
+
+
+@pytest.fixture
+def ollama_ready() -> None:
+    settings = get_settings()
+    try:
+        httpx.get(f"{settings.ollama_host}/api/version", timeout=2.0)
+    except httpx.HTTPError as exc:
+        pytest.skip(f"Ollama not reachable at {settings.ollama_host} - start it first: {exc}")

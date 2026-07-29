@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     retrieval_rerank: bool = False
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+    ollama_host: str = "http://localhost:11434"
+    ollama_model: str = "gemma2:2b"
+
     @property
     def database_url(self) -> str:
         return (
