@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "gemma2:2b"
 
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    upload_dir: str = "data/uploads"
+
     @property
     def database_url(self) -> str:
         return (

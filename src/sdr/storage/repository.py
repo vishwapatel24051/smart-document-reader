@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 import psycopg
+from psycopg.rows import dict_row
 
 from sdr.chunking import Chunk
 from sdr.extraction import QualityReport
@@ -102,6 +105,18 @@ def delete_document(conn: psycopg.Connection, source_path: str) -> bool:
         "DELETE FROM documents WHERE source_path = %s RETURNING id", (source_path,)
     ).fetchone()
     return row is not None
+
+
+def get_document(conn: psycopg.Connection, document_id: int) -> dict[str, Any] | None:
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT * FROM documents WHERE id = %s", (document_id,))
+        return cur.fetchone()
+
+
+def list_documents(conn: psycopg.Connection) -> list[dict[str, Any]]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT * FROM documents ORDER BY id")
+        return cur.fetchall()
 
 
 def count_chunks(conn: psycopg.Connection, document_id: int | None = None) -> int:

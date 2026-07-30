@@ -27,7 +27,7 @@ hardware, models, and configurations, including ones that perform worse.
 - [x] Phase 5 — Retrieval
 - [x] Phase 6 — Answering with span citations
 - [x] Phase 7 — Evaluation harness
-- [ ] Phase 8 — API and interface
+- [x] Phase 8 — API and interface
 - [ ] Phase 9 — Benchmark report
 
 ## Requirements
@@ -72,9 +72,15 @@ docker compose exec app pytest
 SDR_RUN_SLOW_TESTS=1 docker compose exec app pytest   # full run, inside the container
 ```
 
-This starts Postgres with the pgvector extension (`db`) and an app
-container (`app`). The app container has no long-running process yet —
-that lands in Phase 8 with the FastAPI service.
+This starts Postgres with the pgvector extension (`db`), Ollama (`ollama`),
+and the FastAPI app (`app`) — the query UI and API docs are at
+`http://localhost:8000` (`API_HOST_PORT` to override the published port).
+
+Running the API locally without Docker:
+
+```bash
+sdr-serve   # or: uvicorn sdr.api.app:app --reload
+```
 
 ## Project layout
 
@@ -90,9 +96,11 @@ src/sdr/            application package
   retrieval/              dense / lexical / hybrid search + optional reranking
   answering/              LLM answer generation + span citations + groundedness
   evaluation/             matrix runner, CLI, eval-only storage/retrieval, metrics
+  api/                    FastAPI app: routes, schemas, static query UI
   ingest.py              orchestrates detect -> extract -> chunk -> embed -> store
 scripts/             one-off scripts (e.g. fixture generation)
 eval/                evaluation corpus, question set, and results (Phase 7)
+data/uploads/        files uploaded through the API (gitignored)
 tests/               pytest suite
 ```
 
@@ -497,3 +505,43 @@ reported because measuring and reporting it honestly — including when it
 cuts against the project's own thesis — is what this evaluation harness
 exists to do, not because it's a confident, generalizable finding about
 structure-aware extraction.
+
+## API and interface (Phase 8)
+
+FastAPI app (`sdr/api/`) exposing the pipeline built in Phases 4-6, plus a
+minimal static query UI. OpenAPI docs are automatic at `/docs`
+(interactive) and `/openapi.json`.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /health` | Checks Postgres, pgvector, and Ollama reachability; never raises even if they're down. |
+| `POST /documents` | Multipart file upload → saved under `UPLOAD_DIR` (stable path by filename) → `sdr.ingest.ingest_document()`. Re-uploading an unchanged file returns `status: "skipped_unchanged"` — incremental indexing works through the API the same as it does calling the pipeline directly. |
+| `GET /documents` / `GET /documents/{id}` | Document status: extraction quality (pages, OCR, tables, failures), content hash, timestamps. 404 for an unknown id. |
+| `POST /query` | `{question, k, strategy, rerank, with_answer}` → retrieved chunks, and (if `with_answer`) a generated answer with per-sentence groundedness and citations — the same `sdr.retrieval.search()` / `sdr.answering.answer_query()` used everywhere else in the project, not reimplemented for the API. |
+
+The query UI (`sdr/api/static/index.html`) is intentionally minimal, per
+the spec: a question box, k/strategy/rerank/answer controls, and a results
+view showing the answer (each sentence marked grounded/ungrounded with its
+citations) alongside the raw retrieved chunks. No build step, no framework,
+one static HTML file with vanilla JS `fetch`.
+
+**Verified in an actual browser, not just via TestClient**: started the
+real server (`sdr-serve`), used Playwright/Chromium headless to load the
+page, uploaded `mount_everest.pdf` through the API, and submitted "Who
+were the first two people to summit Mount Everest?" through the UI form.
+Zero console errors; the rendered page showed the correct grounded answer
+("...Edmund Hillary of New Zealand and Tenzing Norgay, a Sherpa
+mountaineer from Nepal", grounded 1.00) with an accurate citation
+(`mount_everest.pdf, p.1`) and the matching retrieved chunk text below it.
+
+`docker-compose.yml`'s `app` service now runs `sdr-serve` (replacing the
+Phase 0-7 `sleep infinity` placeholder) and publishes port 8000
+(`API_HOST_PORT` to override — 8000 had no existing conflict on this dev
+machine, unlike Postgres/Ollama's default ports).
+
+Tests: `tests/test_api.py`, via FastAPI's `TestClient` (no separate server
+process needed) — static UI serving and OpenAPI docs run unconditionally;
+health/document-listing need Postgres (`pg_conn`); upload→ingest→query and
+the with-answer path need the real embedding model and, for the latter,
+Ollama (`SDR_RUN_SLOW_TESTS=1`, `ollama_ready`), same gating pattern as
+every other live-dependent test in this project.

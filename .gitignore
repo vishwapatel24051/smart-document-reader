@@ -10,6 +10,9 @@ venv/
 
 .env
 
+data/uploads/*
+!data/uploads/.gitkeep
+
 .pytest_cache/
 .coverage
 .coverage.*

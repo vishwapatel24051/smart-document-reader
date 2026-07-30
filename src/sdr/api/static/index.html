@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Smart Document Reader</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 760px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    line-height: 1.5;
+  }
+  h1 { font-size: 1.3rem; margin-bottom: 0.25rem; }
+  .sub { color: #888; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  form { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 2rem; }
+  textarea {
+    font: inherit;
+    padding: 0.6rem;
+    border-radius: 6px;
+    border: 1px solid #999;
+    resize: vertical;
+    min-height: 3rem;
+  }
+  .options { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; font-size: 0.9rem; }
+  .options label { display: flex; align-items: center; gap: 0.3rem; }
+  select, input[type=number] { font: inherit; }
+  button {
+    font: inherit;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: none;
+    background: #2563eb;
+    color: white;
+    cursor: pointer;
+    width: fit-content;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .error { color: #c0392b; }
+  .answer {
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .sentence { margin-bottom: 0.5rem; }
+  .sentence.grounded { border-left: 3px solid #2ecc71; padding-left: 0.5rem; }
+  .sentence.ungrounded { border-left: 3px solid #e67e22; padding-left: 0.5rem; }
+  .citation {
+    display: inline-block;
+    font-size: 0.75rem;
+    color: #888;
+    margin-left: 0.4rem;
+  }
+  .chunk {
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.9rem;
+  }
+  .chunk .meta { color: #888; font-size: 0.8rem; margin-bottom: 0.3rem; }
+  .chunk .text { white-space: pre-wrap; }
+  .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    background: #eee;
+    color: #333;
+  }
+  h2 { font-size: 1rem; margin-top: 0; }
+</style>
+</head>
+<body>
+<h1>Smart Document Reader</h1>
+<p class="sub">Structure-aware research assistant over a local document corpus. Full API docs at <a href="/docs">/docs</a>.</p>
+
+<form id="query-form">
+  <textarea id="question" placeholder="Ask a question about the ingested corpus..." required></textarea>
+  <div class="options">
+    <label>k <input type="number" id="k" value="5" min="1" max="20" style="width: 3.5rem"></label>
+    <label>strategy
+      <select id="strategy">
+        <option value="">(default)</option>
+        <option value="dense">dense</option>
+        <option value="lexical">lexical</option>
+        <option value="hybrid">hybrid</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="rerank"> rerank</label>
+    <label><input type="checkbox" id="with_answer" checked> generate answer</label>
+  </div>
+  <button type="submit" id="submit-btn">Ask</button>
+</form>
+
+<div id="status"></div>
+<div id="results"></div>
+
+<script>
+const form = document.getElementById("query-form");
+const statusEl = document.getElementById("status");
+const resultsEl = document.getElementById("results");
+const submitBtn = document.getElementById("submit-btn");
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    question: document.getElementById("question").value,
+    k: parseInt(document.getElementById("k").value, 10),
+    strategy: document.getElementById("strategy").value || null,
+    rerank: document.getElementById("rerank").checked,
+    with_answer: document.getElementById("with_answer").checked,
+  };
+
+  submitBtn.disabled = true;
+  statusEl.textContent = "Searching...";
+  resultsEl.innerHTML = "";
+
+  try {
+    const resp = await fetch("/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const detail = await resp.text();
+      throw new Error(`${resp.status}: ${detail}`);
+    }
+    const data = await resp.json();
+    render(data);
+    statusEl.textContent = "";
+  } catch (err) {
+    statusEl.innerHTML = `<p class="error">${escapeHtml(String(err))}</p>`;
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+function render(data) {
+  let html = "";
+
+  if (data.answer) {
+    html += `<div class="answer"><h2>Answer</h2>`;
+    if (data.answer.sentences.length === 0) {
+      html += `<p><em>${escapeHtml(data.answer.raw_text || "(no answer generated)")}</em></p>`;
+    }
+    for (const s of data.answer.sentences) {
+      const cls = s.grounded ? "grounded" : "ungrounded";
+      const badge = s.grounded
+        ? `<span class="badge">grounded (${s.support_score.toFixed(2)})</span>`
+        : `<span class="badge">ungrounded (${s.support_score.toFixed(2)})</span>`;
+      html += `<div class="sentence ${cls}">${escapeHtml(s.text)} ${badge}`;
+      for (const c of s.citations) {
+        html += `<span class="citation">[${escapeHtml(shortPath(c.document))}${c.page !== null ? ", p." + c.page : ""}]</span>`;
+      }
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `<h2>Retrieved chunks (${data.retrieved.length})</h2>`;
+  for (const r of data.retrieved) {
+    html += `<div class="chunk">
+      <div class="meta">#${r.rank} score=${r.score.toFixed(3)} · ${escapeHtml(shortPath(r.source_document))}${r.page !== null ? ", p." + r.page : ""}${r.from_table ? ' · <span class="badge">table</span>' : ""}</div>
+      <div class="text">${escapeHtml(r.text)}</div>
+    </div>`;
+  }
+
+  resultsEl.innerHTML = html;
+}
+
+function shortPath(p) {
+  return p.split("/").pop();
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>

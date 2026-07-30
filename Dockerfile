@@ -9,4 +9,5 @@ RUN apt-get update \
 COPY . .
 RUN pip install --no-cache-dir -e ".[dev]"
 
-CMD ["sleep", "infinity"]
+EXPOSE 8000
+CMD ["sdr-serve"]

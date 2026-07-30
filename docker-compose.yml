@@ -49,9 +49,9 @@ services:
       OLLAMA_HOST: http://ollama:11434
     volumes:
       - ./:/app
-    # Placeholder until Phase 8 adds the FastAPI service; keeps the
-    # container up so `docker compose exec app pytest` works meanwhile.
-    command: ["sleep", "infinity"]
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    command: ["sdr-serve"]
 
 volumes:
   pgdata:
