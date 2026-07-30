@@ -26,7 +26,7 @@ hardware, models, and configurations, including ones that perform worse.
 - [x] Phase 4 — Indexing and storage
 - [x] Phase 5 — Retrieval
 - [x] Phase 6 — Answering with span citations
-- [ ] Phase 7 — Evaluation harness
+- [x] Phase 7 — Evaluation harness
 - [ ] Phase 8 — API and interface
 - [ ] Phase 9 — Benchmark report
 
@@ -89,8 +89,10 @@ src/sdr/            application package
   embedding/             local embedding model wrapper
   retrieval/              dense / lexical / hybrid search + optional reranking
   answering/              LLM answer generation + span citations + groundedness
+  evaluation/             matrix runner, CLI, eval-only storage/retrieval, metrics
   ingest.py              orchestrates detect -> extract -> chunk -> embed -> store
 scripts/             one-off scripts (e.g. fixture generation)
+eval/                evaluation corpus, question set, and results (Phase 7)
 tests/               pytest suite
 ```
 
@@ -379,3 +381,119 @@ reachable, same pattern as the Postgres `pg_conn` fixture).
 published to a fixed host port by default (`OLLAMA_HOST_PORT` to override)
 for the same reason as the Postgres port: Ollama is commonly already
 running natively on 11434.
+
+## Evaluation harness (Phase 7)
+
+**Read `eval/README.md` first.** The corpus (10 documents) and question set
+(40 questions) in `eval/` were authored by Claude, not independently
+reviewed by a human — the spec for this phase explicitly requires that
+disclosure ("do not generate questions with an LLM and treat them as ground
+truth without saying so"), and `eval/README.md` is it, in full.
+
+`sdr.evaluation` builds and runs a config matrix: **extraction**
+(`naive` — the generic-text-loader baseline described in this README's
+opening pitch, added this phase via `sdr.extraction.naive_extract` — vs.
+`structure_aware`, Phase 2's `extract`) × **chunking** (`naive` vs.
+`structure_aware`, Phase 3) × **retrieval** (`dense` vs. `hybrid`) ×
+**rerank** (on/off) — 16 configurations. Each `(extraction, chunking)` pair
+gets its own isolated index in a dedicated `eval_chunks` table (not the
+production `documents`/`chunks` tables — re-indexing the same 10 documents
+four different ways would collide with the production schema's
+one-row-per-path model), scoped by a `config_id` column so runs never leak
+into each other.
+
+```bash
+python -m sdr.evaluation.cli --k 5                    # retrieval only: recall@k, MRR, latency
+python -m sdr.evaluation.cli --k 5 --with-answers      # + groundedness rate (needs Ollama, ~14 min for the full matrix)
+```
+
+Writes a timestamped CSV to `eval/results/` (and `latest.csv`), and prints
+a table to stdout.
+
+### What was actually measured, run on this dev machine (Apple Silicon Mac, `gemma2:2b`, `BAAI/bge-small-en-v1.5`, no GPU)
+
+**Retrieval metrics (recall@5, MRR) are saturated at 1.00 across all 16
+configurations.** This is a real, honest finding, not a bug — this project's
+eval corpus has only 10 documents, each on a completely distinct topic, so
+"is the right document anywhere in the top 5 (or even top 1 — same result
+at `--k 1`)" turned out to be too easy a bar for *any* configuration,
+including the naive/naive baseline, to fail. **This means the retrieval
+metrics on this specific corpus do not currently discriminate between naive
+and structure-aware extraction or chunking** — the corpus would need
+documents that are topically similar to each other (so mangled text from
+extraction/chunking failures could plausibly outrank the genuinely relevant
+document) to actually stress-test that. Recorded here instead of hidden:
+this is exactly the kind of negative/inconclusive result the project's
+own rules require reporting.
+
+Latency did show real, if modest, differences: reranking roughly doubles
+p50 latency (~18ms → ~35-50ms) across every configuration, as expected
+for an extra cross-encoder pass; retrieval strategy and extraction/chunking
+choice made only a few milliseconds of difference at this corpus size —
+unsurprising given the whole corpus is under 100 chunks in every
+configuration.
+
+### `--with-answers` results (groundedness rate, unanswerable decline rate)
+
+Full run: 40 questions × 16 configurations × real `gemma2:2b` generation,
+~15 minutes wall time. Full table in `eval/results/latest.csv`; summarized
+here.
+
+**This did not confirm the hypothesis it was built to test, and that's
+reported as measured, not adjusted.** The expectation going in was that
+structure-aware extraction/chunking would show a *higher* groundedness rate
+than naive (better-preserved tables and reading order → answers that more
+clearly echo the source text). What was measured is close to the opposite:
+
+| extraction × chunking | groundedness rate (range across retrieval/rerank) | unanswerable decline rate (range) |
+|---|---|---|
+| naive × naive | 0.80 – 0.90 | 0.40 – 0.80 |
+| naive × structure_aware | 0.80 – 0.85 | 0.60 – 0.80 |
+| structure_aware × naive | 0.825 – 0.90 | 0.40 – 0.70 |
+| structure_aware × structure_aware | 0.775 – 0.80 | 0.80 – 0.90 |
+
+`structure_aware`×`structure_aware` — the configuration this whole project
+argues for — has the **lowest** groundedness rate of the four extraction ×
+chunking pairs, and the **highest** unanswerable-decline rate (best at
+correctly refusing to answer the 10 unanswerable questions). Those two
+numbers move together, and a plausible mechanical reason why: naive
+chunking produces one large chunk per document (often the entire
+document), so an answer sentence has a big pool of the document's own
+vocabulary to lexically overlap with, even when the LLM is combining or
+slightly misstating facts. Structure-aware chunking produces many small,
+specific chunks — an answer sentence only overlaps well with the one exact
+chunk it was actually drawn from, so the groundedness heuristic (Phase 6:
+lexical overlap, not semantic entailment) scores it more strictly. In other
+words, this may be measuring "structure-aware chunking makes the lexical-
+overlap heuristic more conservative," not "structure-aware chunking
+produces less accurate answers" — but this evaluation, as built, cannot
+tell those two apart, because groundedness here is defined by that same
+heuristic, and nothing here independently checked whether the *answers*
+generated were more or less factually correct.
+
+Reranking showed no consistent directional effect on groundedness across
+the 16 configurations (moved up in some, down in others, always by ≤0.05)
+— its only consistent, measured effect was on latency (below). Dense
+retrieval's groundedness rate was equal to or slightly higher than
+hybrid's in every one of the four extraction×chunking pairs (never lower),
+a small but consistent enough pattern to note, though not a large enough
+gap or sample (40 questions, one run) to treat as conclusive.
+
+Latency: reranking consistently roughly doubles retrieval p50 (e.g.
+naive×naive dense: 48ms → 83ms); `structure_aware`×`structure_aware`
+without reranking was the fastest configuration measured (~24ms p50) despite
+producing the most chunks, likely because its chunks are shorter on average
+so cosine/text-search comparisons are cheaper — not confirmed by a direct
+profiling breakdown, noted as a hypothesis. Average response length was
+flat across all configurations (~19–21 tokens per answer) — the model
+gives similarly short answers regardless of what it's shown.
+
+**Caveats, stated plainly**: this is one run, no repeated trials, 40
+questions total (30 graded for recall/groundedness, 10 for unanswerable
+decline) against a 10-document corpus small enough that retrieval itself
+is saturated (see above). Differences of a few percentage points here are
+within plausible single-run noise for a sample this size. This result is
+reported because measuring and reporting it honestly — including when it
+cuts against the project's own thesis — is what this evaluation harness
+exists to do, not because it's a confident, generalizable finding about
+structure-aware extraction.

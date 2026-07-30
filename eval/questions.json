@@ -1,0 +1,55 @@
+{
+  "_provenance": "Authored by Claude (Anthropic) as part of scaffolding this project, not independently reviewed or verified by a human domain expert. See eval/README.md for the full disclosure. Do not treat this as a validated benchmark question set.",
+  "questions": [
+    {"id": "q01", "question": "What is the capital of France?", "expected_documents": ["geography_capitals.txt"], "category": "factual"},
+    {"id": "q02", "question": "Which city serves as Australia's seat of government, if not Sydney?", "expected_documents": ["geography_capitals.txt"], "category": "paraphrase"},
+    {"id": "q03", "question": "In what year did Ottawa become Canada's capital?", "expected_documents": ["geography_capitals.txt"], "category": "factual"},
+
+    {"id": "q04", "question": "How do solar panels convert sunlight into electricity?", "expected_documents": ["renewable_energy_overview.txt"], "category": "factual"},
+    {"id": "q05", "question": "What natural process do wind turbines rely on to generate power?", "expected_documents": ["renewable_energy_overview.txt"], "category": "paraphrase"},
+    {"id": "q06", "question": "Which renewable source has historically produced the most electricity worldwide?", "expected_documents": ["renewable_energy_overview.txt"], "category": "factual"},
+
+    {"id": "q07", "question": "What is the order of Mercury among the planets counting from the Sun?", "expected_documents": ["solar_system.html"], "category": "table"},
+    {"id": "q08", "question": "Why are Uranus and Neptune called ice giants?", "expected_documents": ["solar_system.html"], "category": "factual"},
+    {"id": "q09", "question": "Which planet is the largest in the solar system?", "expected_documents": ["solar_system.html"], "category": "factual"},
+
+    {"id": "q10", "question": "Who created the Python programming language?", "expected_documents": ["python_history.html"], "category": "factual"},
+    {"id": "q11", "question": "In what year was Python first released?", "expected_documents": ["python_history.html"], "category": "factual"},
+    {"id": "q12", "question": "What programming language uses significant whitespace instead of braces, and who designed it?", "expected_documents": ["python_history.html"], "category": "paraphrase"},
+
+    {"id": "q13", "question": "On what date did Germany invade Poland?", "expected_documents": ["world_war_2_timeline.html"], "category": "table"},
+    {"id": "q14", "question": "What event brought the United States into World War II?", "expected_documents": ["world_war_2_timeline.html"], "category": "paraphrase"},
+    {"id": "q15", "question": "When did Japan formally surrender, ending World War II?", "expected_documents": ["world_war_2_timeline.html"], "category": "table"},
+
+    {"id": "q16", "question": "Which coffee brewing method uses a metal mesh plunger?", "expected_documents": ["coffee_brewing_guide.pdf"], "category": "factual"},
+    {"id": "q17", "question": "What grind size is typically used for pour-over coffee?", "expected_documents": ["coffee_brewing_guide.pdf"], "category": "factual"},
+    {"id": "q18", "question": "Which brewing method produces a small, concentrated shot using high pressure?", "expected_documents": ["coffee_brewing_guide.pdf"], "category": "paraphrase"},
+
+    {"id": "q19", "question": "What is the official height of Mount Everest according to the 2020 remeasurement?", "expected_documents": ["mount_everest.pdf"], "category": "factual"},
+    {"id": "q20", "question": "Who were the first two people confirmed to summit Mount Everest?", "expected_documents": ["mount_everest.pdf"], "category": "factual"},
+    {"id": "q21", "question": "What is Mount Everest called in the Tibetan language?", "expected_documents": ["mount_everest.pdf"], "category": "factual"},
+
+    {"id": "q22", "question": "Which body system is responsible for gas exchange?", "expected_documents": ["human_body_systems.docx"], "category": "factual"},
+    {"id": "q23", "question": "What are the main components of the circulatory system?", "expected_documents": ["human_body_systems.docx"], "category": "factual"},
+    {"id": "q24", "question": "Which system breaks down food into nutrients the body can use?", "expected_documents": ["human_body_systems.docx"], "category": "paraphrase"},
+
+    {"id": "q25", "question": "What was Acme Fictional Corp's revenue in Q4?", "expected_documents": ["company_quarterly_report.docx"], "category": "table"},
+    {"id": "q26", "question": "In which quarter did Acme Fictional Corp's revenue dip compared to the previous quarter?", "expected_documents": ["company_quarterly_report.docx"], "category": "table"},
+    {"id": "q27", "question": "What was Acme Fictional Corp's overall revenue trend across the fiscal year?", "expected_documents": ["company_quarterly_report.docx"], "category": "factual"},
+
+    {"id": "q28", "question": "Which board game in the collection has been played the most times?", "expected_documents": ["board_game_collection.pdf"], "category": "table"},
+    {"id": "q29", "question": "Which board game has the highest personal rating in the collection log?", "expected_documents": ["board_game_collection.pdf"], "category": "table"},
+    {"id": "q30", "question": "How many times was Catan played, according to the collection log?", "expected_documents": ["board_game_collection.pdf"], "category": "table"},
+
+    {"id": "q31", "question": "What is the capital of Germany?", "expected_documents": [], "category": "unanswerable"},
+    {"id": "q32", "question": "Who invented the telephone?", "expected_documents": [], "category": "unanswerable"},
+    {"id": "q33", "question": "What is the boiling point of water at sea level?", "expected_documents": [], "category": "unanswerable"},
+    {"id": "q34", "question": "Which coffee brewing method uses a moka pot?", "expected_documents": [], "category": "unanswerable"},
+    {"id": "q35", "question": "What is the population of Tokyo?", "expected_documents": [], "category": "unanswerable"},
+    {"id": "q36", "question": "How tall is K2, the second-highest mountain in the world?", "expected_documents": [], "category": "unanswerable"},
+    {"id": "q37", "question": "What was Acme Fictional Corp's revenue in Q1 2024?", "expected_documents": [], "category": "unanswerable"},
+    {"id": "q38", "question": "Which planet has the most moons?", "expected_documents": [], "category": "unanswerable"},
+    {"id": "q39", "question": "What operating system was Python originally developed on?", "expected_documents": [], "category": "unanswerable"},
+    {"id": "q40", "question": "How many calories are in a cup of black coffee?", "expected_documents": [], "category": "unanswerable"}
+  ]
+}

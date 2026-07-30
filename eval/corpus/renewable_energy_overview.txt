@@ -1,0 +1,9 @@
+Renewable energy comes from sources that naturally replenish, unlike fossil fuels such as coal and oil.
+
+Solar power generates electricity using photovoltaic panels, which convert sunlight directly into electricity. Solar panels contain semiconductor cells that release electrons when struck by photons of light.
+
+Wind power generates electricity using turbines. Wind turns large blades connected to a generator, converting the kinetic energy of moving air into electrical energy.
+
+Hydroelectric power generates electricity by directing flowing or falling water through turbines. Most hydroelectric power comes from dams that create a large reservoir of water at height, which is released through turbines to generate electricity on demand.
+
+Of these three sources, hydroelectric power has historically supplied the largest share of renewable electricity generation worldwide, though solar and wind capacity have both grown rapidly in recent years.
