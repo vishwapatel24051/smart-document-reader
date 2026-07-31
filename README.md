@@ -13,9 +13,11 @@ columns, tables collapse into unordered numbers, scanned pages return
 nothing, and captions detach from figures. Retrieval then searches corrupted
 text, and the resulting bad answer gets blamed on the model.
 
-No performance numbers are reported below yet — none have been measured.
-Phase 9 will fill in a benchmark report against a committed corpus, stating
-hardware, models, and configurations, including ones that perform worse.
+**Benchmark report: see "Benchmark report (Phase 9)" below.** Read the
+caveats there before drawing conclusions — this is a small, AI-authored
+eval set (disclosed in `eval/README.md`), not an independently validated
+benchmark, and its most notable finding cuts against this project's own
+thesis rather than confirming it.
 
 ## Status
 
@@ -28,7 +30,7 @@ hardware, models, and configurations, including ones that perform worse.
 - [x] Phase 6 — Answering with span citations
 - [x] Phase 7 — Evaluation harness
 - [x] Phase 8 — API and interface
-- [ ] Phase 9 — Benchmark report
+- [x] Phase 9 — Benchmark report
 
 ## Requirements
 
@@ -545,3 +547,114 @@ health/document-listing need Postgres (`pg_conn`); upload→ingest→query and
 the with-answer path need the real embedding model and, for the latter,
 Ollama (`SDR_RUN_SLOW_TESTS=1`, `ollama_ready`), same gating pattern as
 every other live-dependent test in this project.
+
+## Benchmark report (Phase 9)
+
+Full 16-configuration matrix run: extraction (`naive` vs `structure_aware`)
+× chunking (`naive` vs `structure_aware`) × retrieval (`dense` vs
+`hybrid`) × rerank (on/off). All numbers below are from a single real run
+— raw data in `eval/results/latest.csv` — nothing here is estimated or
+back-filled.
+
+**Read `eval/README.md` before trusting any of this.** The corpus and
+question set were authored by Claude (this project's own AI assistant),
+not independently reviewed by a human. That disclosure is load-bearing,
+not a footnote: it's why the retrieval metrics below are saturated
+(uninformative) and why the groundedness numbers should be read as "what
+this heuristic measured on this small AI-authored set," not as a
+validated claim about answer quality.
+
+**Corpus**: `eval/corpus/`, 10 documents (2 plain text, 3 HTML, 2 DOCX,
+3 PDF — one multi-column, one ruled-table, one flowing text), spanning
+geography, science, history, a programming language, and two documents
+with deliberately synthetic/fictional data. Full manifest in
+`eval/README.md`. **Questions**: `eval/questions.json`, 40 questions (30
+answerable, tied to a specific expected source document; 10 deliberately
+unanswerable from this corpus).
+
+**Hardware**: Apple M1 Pro, 10 cores, 16 GB RAM, macOS 26.5.2. No GPU used
+— all inference (embedding, reranking, LLM generation) ran on CPU.
+
+**Software**: Python 3.14.2 · PostgreSQL 16.14 + pgvector 0.8.5 ·
+PyMuPDF 1.28.0 · sentence-transformers 5.6.1 · psycopg 3.3.4 · FastAPI
+0.141.1. **Models**: embeddings `BAAI/bge-small-en-v1.5` (384-dim) ·
+reranker `cross-encoder/ms-marco-MiniLM-L-6-v2` · answering LLM
+`gemma2:2b` via Ollama (1.6 GB, CPU inference).
+
+### Full results
+
+`k=5`. `grounded` / `unans. OK` / `avg tokens` come from the `--with-answers`
+pass (real `gemma2:2b` calls, one per question per configuration — 640
+generations total). `recall@k` and `MRR` are identical (1.00) in every row;
+see below for why that's a real, reported limitation, not an omission.
+
+| extraction | chunking | retrieval | rerank | recall@k | MRR | p50 ms | p95 ms | grounded | unans. OK | avg tokens |
+|---|---|---|---|---|---|---|---|---|---|---|
+| naive | naive | dense | False | 1.00 | 1.00 | 48 | 68 | 0.900 | 0.40 | 19.6 |
+| naive | naive | dense | True | 1.00 | 1.00 | 83 | 138 | 0.850 | 0.60 | 21.1 |
+| naive | naive | hybrid | False | 1.00 | 1.00 | 50 | 79 | 0.800 | 0.80 | 20.3 |
+| naive | naive | hybrid | True | 1.00 | 1.00 | 83 | 112 | 0.850 | 0.60 | 21.3 |
+| naive | structure_aware | dense | False | 1.00 | 1.00 | 47 | 63 | 0.850 | 0.60 | 19.9 |
+| naive | structure_aware | dense | True | 1.00 | 1.00 | 81 | 118 | 0.825 | 0.70 | 21.2 |
+| naive | structure_aware | hybrid | False | 1.00 | 1.00 | 49 | 73 | 0.800 | 0.80 | 20.9 |
+| naive | structure_aware | hybrid | True | 1.00 | 1.00 | 83 | 249 | 0.825 | 0.70 | 20.6 |
+| structure_aware | naive | dense | False | 1.00 | 1.00 | 50 | 63 | 0.850 | 0.60 | 19.8 |
+| **structure_aware** | **naive** | **dense** | **True** | **1.00** | **1.00** | **90** | **188** | **0.900** | **0.40** | **20.2** |
+| structure_aware | naive | hybrid | False | 1.00 | 1.00 | 50 | 64 | 0.850 | 0.60 | 19.9 |
+| structure_aware | naive | hybrid | True | 1.00 | 1.00 | 86 | 108 | 0.825 | 0.70 | 20.2 |
+| **structure_aware** | **structure_aware** | **dense** | **False** | 1.00 | 1.00 | **24** | 78 | **0.800** | 0.80 | 20.2 |
+| structure_aware | structure_aware | dense | True | 1.00 | 1.00 | 91 | 146 | **0.775** | **0.90** | 18.9 |
+| structure_aware | structure_aware | hybrid | False | 1.00 | 1.00 | **25** | 72 | **0.775** | **0.90** | 19.1 |
+| structure_aware | structure_aware | hybrid | True | 1.00 | 1.00 | 70 | 98 | **0.775** | **0.90** | 18.7 |
+
+### What performed worse — stated directly, per the spec's own requirement
+
+**Retrieval quality (recall@5, MRR) does not discriminate between any of
+these configurations — including the naive/naive baseline.** All 16 score
+a perfect 1.00. This was checked, not assumed: the same saturation held at
+`k=1`. With only 10 documents, each on a completely distinct topic,
+"is the right document anywhere in the top-k" was too easy a bar for any
+configuration to fail. This is this report's most direct limitation: on
+this corpus, at this metric, the entire premise of the project — that
+structure-aware extraction retrieves better — **is untested**, not
+confirmed. A corpus with topically-overlapping documents (so a
+badly-extracted competitor could plausibly outrank the right one) would be
+needed to actually stress this.
+
+**`structure_aware`×`structure_aware` — the configuration this project
+argues for — has the *lowest* groundedness rate of the four extraction ×
+chunking pairs (0.775–0.800, vs. up to 0.900 for `naive`×`naive` and
+`structure_aware`×`naive`) and correspondingly the *highest*
+unanswerable-decline rate (0.80–0.90).** The likely mechanism (explained
+in the Phase 7 section above): naive chunking produces one large chunk per
+document, giving the lexical-overlap groundedness heuristic a bigger
+vocabulary pool to match against, even for a loosely-accurate answer.
+Structure-aware chunking's smaller, specific chunks make that same
+heuristic stricter. This may be "the heuristic got more conservative," not
+"the answers got worse" — this evaluation cannot distinguish those two
+explanations, because groundedness here *is* the heuristic. Recorded as
+measured, not adjusted to match the expected direction.
+
+**Reranking consistently costs latency for no consistent groundedness
+benefit.** p50 roughly doubles in every one of the 8 dense/hybrid pairs
+it's toggled on for (e.g. naive×naive dense: 48ms → 83ms; the worst case,
+naive×structure_aware hybrid, hit 249ms p95). Its effect on groundedness
+moved in both directions across the 16 rows, never by more than 0.05 — not
+distinguishable from noise at this sample size (40 questions, one run).
+
+**Fastest configuration measured**: `structure_aware`×`structure_aware`
+without reranking (24–25ms p50) — despite producing the most chunks of any
+configuration, plausibly because those chunks are shorter on average
+(not confirmed by direct profiling, noted as a hypothesis).
+
+### Caveats that apply to every number above
+
+One run, no repeated trials, 40 questions (30 graded for recall/MRR/
+groundedness, 10 for unanswerable-decline), against a corpus small enough
+that retrieval itself is saturated. Differences of a few percentage points
+in the groundedness/decline columns are within plausible single-run noise
+for a sample this size — treat the *direction* (structure-aware chunking
+trending stricter) as the finding, not the exact decimal values. This
+report exists to show the comparison, including where it doesn't flatter
+the project's own thesis, per this phase's explicit instruction — not to
+claim a validated, generalizable result.

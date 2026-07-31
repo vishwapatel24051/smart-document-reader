@@ -4,107 +4,407 @@
 <meta charset="UTF-8">
 <title>Smart Document Reader</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f6f9;
+    --card-bg: #ffffff;
+    --border: #e3e3ea;
+    --text: #1b1b1f;
+    --text-muted: #6b6b76;
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+    --primary-bg: #eef2ff;
+    --success: #15803d;
+    --success-bg: #f0fdf4;
+    --success-border: #bbf7d0;
+    --warning: #b45309;
+    --warning-bg: #fffbeb;
+    --warning-border: #fde68a;
+    --error: #b91c1c;
+    --error-bg: #fef2f2;
+    --radius: 12px;
+    --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 8px rgba(0,0,0,0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f0f13;
+      --card-bg: #1a1a20;
+      --border: #2c2c34;
+      --text: #f1f1f4;
+      --text-muted: #9797a3;
+      --primary: #818cf8;
+      --primary-hover: #a5b4fc;
+      --primary-bg: #1e1b3a;
+      --success: #4ade80;
+      --success-bg: #0f2418;
+      --success-border: #16532f;
+      --warning: #fbbf24;
+      --warning-bg: #2a1f06;
+      --warning-border: #56430c;
+      --error: #f87171;
+      --error-bg: #2a1212;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 1px 8px rgba(0,0,0,0.3);
+    }
+  }
+
+  * { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    max-width: 760px;
-    margin: 2rem auto;
-    padding: 0 1rem;
-    line-height: 1.5;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 5rem;
+    line-height: 1.55;
+    background: var(--bg);
+    color: var(--text);
   }
-  h1 { font-size: 1.3rem; margin-bottom: 0.25rem; }
-  .sub { color: #888; font-size: 0.9rem; margin-bottom: 1.5rem; }
-  form { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 2rem; }
+  header { margin-bottom: 2rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 0.35rem; }
+  .sub { color: var(--text-muted); font-size: 0.95rem; margin: 0; }
+  .sub a { color: var(--primary); }
+  h2 { font-size: 1.05rem; margin: 0 0 0.3rem; display: flex; align-items: center; gap: 0.5rem; }
+  .step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.5rem; height: 1.5rem; border-radius: 50%;
+    background: var(--primary); color: white; font-size: 0.8rem; font-weight: 600;
+    flex-shrink: 0;
+  }
+  .section-icon { flex-shrink: 0; color: var(--primary); }
+  .section-desc { color: var(--text-muted); font-size: 0.85rem; margin: 0 0 0.9rem; }
+  section {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.25rem 1.4rem;
+    margin-bottom: 1.25rem;
+  }
+  p.hint { color: var(--text-muted); font-size: 0.85rem; margin: 0.4rem 0 0; }
+
+  /* Upload dropzone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 1.75rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone:hover, .dropzone.dragover { border-color: var(--primary); background: var(--primary-bg); }
+  .dropzone p { margin: 0; }
+  .dropzone .main-text { font-weight: 500; }
+  .dropzone .link { color: var(--primary); text-decoration: underline; }
+  .dropzone .hint { margin-top: 0.3rem; }
+  .spinner {
+    display: inline-block; width: 1em; height: 1em;
+    border: 2px solid currentColor; border-right-color: transparent;
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+    vertical-align: -0.15em; margin-right: 0.4rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .callout { border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.9rem; margin-top: 0.75rem; border: 1px solid; }
+  .callout.success { background: var(--success-bg); border-color: var(--success-border); color: var(--success); }
+  .callout.error { background: var(--error-bg); border-color: var(--error); color: var(--error); }
+  .callout.info { background: var(--primary-bg); border-color: var(--primary); color: var(--primary); }
+
+  /* Document bundle */
+  #doc-summary {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.92rem; color: var(--text); font-weight: 500;
+    padding: 0.4rem 0;
+  }
+  #doc-summary::marker { color: var(--primary); }
+  #doc-summary .doc-summary-types { color: var(--text-muted); font-weight: 400; font-size: 0.85rem; }
+  #doc-list { list-style: none; padding: 0; margin: 0.6rem 0 0; }
+  #doc-list li {
+    padding: 0.55rem 0.15rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  #doc-list li:last-child { border-bottom: none; }
+  #doc-list .doc-name { font-weight: 500; overflow-wrap: anywhere; flex: 1; }
+  #doc-list .doc-meta { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; }
+  .badge.ft-pdf { background: #fee2e2; color: #b91c1c; }
+  .badge.ft-docx { background: #dbeafe; color: #1d4ed8; }
+  .badge.ft-html { background: #ffedd5; color: #c2410c; }
+  .badge.ft-txt { background: #f3f4f6; color: #4b5563; }
+  @media (prefers-color-scheme: dark) {
+    .badge.ft-pdf { background: #450a0a; color: #fca5a5; }
+    .badge.ft-docx { background: #1e2a4a; color: #93c5fd; }
+    .badge.ft-html { background: #431407; color: #fdba74; }
+    .badge.ft-txt { background: #27272a; color: #d1d5db; }
+  }
+
+  /* Question form */
   textarea {
     font: inherit;
-    padding: 0.6rem;
-    border-radius: 6px;
-    border: 1px solid #999;
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--text);
     resize: vertical;
-    min-height: 3rem;
+    min-height: 3.5rem;
   }
-  .options { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; font-size: 0.9rem; }
-  .options label { display: flex; align-items: center; gap: 0.3rem; }
-  select, input[type=number] { font: inherit; }
-  button {
-    font: inherit;
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    border: none;
-    background: #2563eb;
-    color: white;
+  textarea:focus, input:focus, select:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+  details { margin-top: 0.9rem; }
+  summary {
     cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--primary);
+    user-select: none;
     width: fit-content;
   }
-  button:disabled { opacity: 0.6; cursor: default; }
-  .error { color: #c0392b; }
-  .answer {
-    border: 1px solid currentColor;
+  .adv-options { margin-top: 0.9rem; display: flex; flex-direction: column; gap: 0.9rem; }
+  .adv-option label.title { font-size: 0.85rem; font-weight: 500; display: block; margin-bottom: 0.2rem; }
+  .adv-option select, .adv-option input[type=number] { font: inherit; padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); }
+  .adv-option .checkbox-row { display: flex; align-items: center; gap: 0.4rem; }
+  .adv-option .checkbox-row label.title { margin: 0; }
+
+  button {
+    font: inherit;
+    font-weight: 500;
+    padding: 0.6rem 1.3rem;
     border-radius: 8px;
-    padding: 1rem;
-    margin-bottom: 1.5rem;
+    border: none;
+    background: var(--primary);
+    color: white;
+    cursor: pointer;
+    margin-top: 1rem;
   }
-  .sentence { margin-bottom: 0.5rem; }
-  .sentence.grounded { border-left: 3px solid #2ecc71; padding-left: 0.5rem; }
-  .sentence.ungrounded { border-left: 3px solid #e67e22; padding-left: 0.5rem; }
+  button:hover:not(:disabled) { background: var(--primary-hover); }
+  button:disabled { opacity: 0.6; cursor: default; }
+  button.secondary { background: transparent; color: var(--primary); border: 1px solid var(--border); padding: 0.4rem 0.9rem; font-size: 0.85rem; margin-top: 0; }
+
+  /* Results */
+  .answer {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.25rem 1.4rem;
+    margin-bottom: 1.25rem;
+  }
+  .sentence { margin-bottom: 0.7rem; padding-left: 0.7rem; border-left: 3px solid var(--border); }
+  .sentence.grounded { border-left-color: var(--success); }
+  .sentence.ungrounded { border-left-color: var(--warning); }
+  .badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    margin-left: 0.3rem;
+    white-space: nowrap;
+  }
+  .badge.grounded { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
+  .badge.ungrounded { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning-border); }
+  .badge.table { background: var(--primary-bg); color: var(--primary); }
   .citation {
     display: inline-block;
     font-size: 0.75rem;
-    color: #888;
+    color: var(--text-muted);
     margin-left: 0.4rem;
   }
+  .legend { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.9rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+  .legend .dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%; margin-right: 0.3rem; }
+  .legend .dot.g { background: var(--success); }
+  .legend .dot.u { background: var(--warning); }
+
   .chunk {
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
     margin-bottom: 0.6rem;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
+    background: var(--card-bg);
   }
-  .chunk .meta { color: #888; font-size: 0.8rem; margin-bottom: 0.3rem; }
+  .chunk .meta { color: var(--text-muted); font-size: 0.78rem; margin-bottom: 0.35rem; }
   .chunk .text { white-space: pre-wrap; }
-  .badge {
-    display: inline-block;
-    font-size: 0.7rem;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    background: #eee;
-    color: #333;
-  }
-  h2 { font-size: 1rem; margin-top: 0; }
 </style>
 </head>
 <body>
-<h1>Smart Document Reader</h1>
-<p class="sub">Structure-aware research assistant over a local document corpus. Full API docs at <a href="/docs">/docs</a>.</p>
+<header>
+  <h1>Smart Document Reader</h1>
+  <p class="sub">A private research assistant for your own files: add documents, then ask questions in plain English. Every answer is checked against what you actually uploaded — nothing is made up. Full API docs at <a href="/docs">/docs</a>.</p>
+</header>
 
-<form id="query-form">
-  <textarea id="question" placeholder="Ask a question about the ingested corpus..." required></textarea>
-  <div class="options">
-    <label>k <input type="number" id="k" value="5" min="1" max="20" style="width: 3.5rem"></label>
-    <label>strategy
-      <select id="strategy">
-        <option value="">(default)</option>
-        <option value="dense">dense</option>
-        <option value="lexical">lexical</option>
-        <option value="hybrid">hybrid</option>
-      </select>
-    </label>
-    <label><input type="checkbox" id="rerank"> rerank</label>
-    <label><input type="checkbox" id="with_answer" checked> generate answer</label>
+<section id="upload-section">
+  <h2><span class="step-num">1</span> Add documents</h2>
+  <p class="section-desc">Works with PDFs, Word documents, HTML pages, and plain text — tables and multi-column layouts are kept intact, not flattened into a jumble.</p>
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="file-input" hidden>
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted); margin-bottom: 0.5rem;"><path d="M4 14.9A5 5 0 0 1 6 5.3 6 6 0 0 1 17.8 8h.2a4 4 0 0 1 1 7.9"/><path d="M12 12v9"/><path d="m8 16 4-4 4 4"/></svg>
+    <p class="main-text">Drag &amp; drop a file here, or <span class="link">browse</span></p>
+    <p class="hint">PDF, Word (.docx), HTML, or plain text</p>
   </div>
-  <button type="submit" id="submit-btn">Ask</button>
-</form>
+  <div id="upload-status"></div>
+</section>
 
-<div id="status"></div>
+<section id="documents-section">
+  <h2>
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="section-icon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+    Your documents
+  </h2>
+  <p id="no-docs" class="hint">Nothing uploaded yet — add a document above to get started.</p>
+  <details id="doc-bundle">
+    <summary id="doc-summary">0 documents</summary>
+    <ul id="doc-list"></ul>
+  </details>
+</section>
+
+<section id="query-section">
+  <h2><span class="step-num">2</span> Ask a question</h2>
+  <p class="section-desc">Type a question the way you'd ask a person. You'll get an answer with each part marked as backed by your documents or not — plus the exact passages it came from.</p>
+  <form id="query-form">
+    <textarea id="question" placeholder="e.g. What does the report say about revenue?" required></textarea>
+
+    <details>
+      <summary>Advanced options</summary>
+      <div class="adv-options">
+        <div class="adv-option">
+          <label class="title" for="k">Number of sources to check</label>
+          <input type="number" id="k" value="5" min="1" max="20" style="width: 4rem">
+          <p class="hint">How many passages to search through before answering. Higher can be more thorough but slower.</p>
+        </div>
+        <div class="adv-option">
+          <label class="title" for="strategy">Search method</label>
+          <select id="strategy">
+            <option value="">Balanced (recommended)</option>
+            <option value="dense">Meaning-based — finds related ideas, even with different wording</option>
+            <option value="lexical">Exact keyword match — finds the literal words in your question</option>
+          </select>
+        </div>
+        <div class="adv-option">
+          <div class="checkbox-row">
+            <input type="checkbox" id="rerank">
+            <label class="title" for="rerank">Extra accuracy pass</label>
+          </div>
+          <p class="hint">Double-checks the top results more carefully before answering. Slower, occasionally more accurate.</p>
+        </div>
+        <div class="adv-option">
+          <div class="checkbox-row">
+            <input type="checkbox" id="with_answer" checked>
+            <label class="title" for="with_answer">Write an answer</label>
+          </div>
+          <p class="hint">If off, you'll just get the matching source passages with no written answer.</p>
+        </div>
+      </div>
+    </details>
+
+    <button type="submit" id="submit-btn">Ask</button>
+  </form>
+  <div id="status"></div>
+</section>
+
 <div id="results"></div>
 
 <script>
-const form = document.getElementById("query-form");
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("file-input");
+const uploadStatusEl = document.getElementById("upload-status");
+const docBundleEl = document.getElementById("doc-bundle");
+const docSummaryEl = document.getElementById("doc-summary");
+const docListEl = document.getElementById("doc-list");
+const noDocsEl = document.getElementById("no-docs");
+
+const queryForm = document.getElementById("query-form");
 const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 const submitBtn = document.getElementById("submit-btn");
 
-form.addEventListener("submit", async (e) => {
+dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+dropzone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropzone.classList.remove("dragover");
+  if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) uploadFile(fileInput.files[0]);
+});
+
+async function uploadFile(file) {
+  uploadStatusEl.innerHTML = `<div class="callout info"><span class="spinner"></span>Uploading and reading ${escapeHtml(file.name)}...</div>`;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const resp = await fetch("/documents", { method: "POST", body: formData });
+    if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+    const data = await resp.json();
+
+    if (data.status === "indexed") {
+      uploadStatusEl.innerHTML = `<div class="callout success">&#10003; <strong>${escapeHtml(file.name)}</strong> is ready (${data.chunks_indexed} section${data.chunks_indexed === 1 ? "" : "s"} indexed). Ask a question about it below.</div>`;
+      document.getElementById("question").focus();
+    } else if (data.status === "skipped_unchanged") {
+      uploadStatusEl.innerHTML = `<div class="callout info"><strong>${escapeHtml(file.name)}</strong> was already added and hasn't changed. You can ask about it below.</div>`;
+      document.getElementById("question").focus();
+    } else {
+      uploadStatusEl.innerHTML = `<div class="callout error">Couldn't read ${escapeHtml(file.name)}: ${escapeHtml(data.reason || data.status)}</div>`;
+    }
+    fileInput.value = "";
+    loadDocuments();
+  } catch (err) {
+    uploadStatusEl.innerHTML = `<div class="callout error">${escapeHtml(String(err))}</div>`;
+  }
+}
+
+async function loadDocuments() {
+  try {
+    const resp = await fetch("/documents");
+    const docs = await resp.json();
+
+    noDocsEl.style.display = docs.length === 0 ? "block" : "none";
+    docBundleEl.style.display = docs.length === 0 ? "none" : "block";
+
+    const typeCounts = {};
+    for (const d of docs) {
+      const t = fileTypeLabel(d.source_path);
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    }
+    const typeSummary = Object.entries(typeCounts).map(([t, n]) => `${n} ${t}`).join(" · ");
+    docSummaryEl.innerHTML = `${docs.length} document${docs.length === 1 ? "" : "s"} added${typeSummary ? ` <span class="doc-summary-types">(${escapeHtml(typeSummary)})</span>` : ""}`;
+
+    docListEl.innerHTML = docs.map((d) => {
+      const meta = [`${d.chars_recovered.toLocaleString()} characters`];
+      if (d.tables_found) meta.push(`${d.tables_found} table${d.tables_found === 1 ? "" : "s"}`);
+      if (d.pages_needing_ocr) meta.push(`${d.pages_needing_ocr} page(s) needed OCR`);
+      if (d.extraction_failures.length) meta.push(`${d.extraction_failures.length} issue(s)`);
+      const type = fileTypeLabel(d.source_path);
+      return `<li>
+        <span class="badge ${fileTypeClass(d.source_path)}">${type}</span>
+        <span class="doc-name">${escapeHtml(shortPath(d.source_path))}</span>
+        <span class="doc-meta">${escapeHtml(meta.join(" · "))}</span>
+      </li>`;
+    }).join("");
+  } catch (err) {
+    docListEl.innerHTML = `<li class="error">${escapeHtml(String(err))}</li>`;
+  }
+}
+
+function fileTypeLabel(path) {
+  const ext = path.split(".").pop().toLowerCase();
+  if (ext === "htm") return "HTML";
+  if (ext === "doc") return "DOCX";
+  return ext.toUpperCase();
+}
+
+function fileTypeClass(path) {
+  const ext = path.split(".").pop().toLowerCase();
+  if (ext === "pdf") return "ft-pdf";
+  if (ext === "docx" || ext === "doc") return "ft-docx";
+  if (ext === "html" || ext === "htm") return "ft-html";
+  return "ft-txt";
+}
+
+queryForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const body = {
     question: document.getElementById("question").value,
@@ -115,7 +415,7 @@ form.addEventListener("submit", async (e) => {
   };
 
   submitBtn.disabled = true;
-  statusEl.textContent = "Searching...";
+  statusEl.innerHTML = `<div class="callout info"><span class="spinner"></span>Thinking...</div>`;
   resultsEl.innerHTML = "";
 
   try {
@@ -132,7 +432,7 @@ form.addEventListener("submit", async (e) => {
     render(data);
     statusEl.textContent = "";
   } catch (err) {
-    statusEl.innerHTML = `<p class="error">${escapeHtml(String(err))}</p>`;
+    statusEl.innerHTML = `<div class="callout error">${escapeHtml(String(err))}</div>`;
   } finally {
     submitBtn.disabled = false;
   }
@@ -144,29 +444,35 @@ function render(data) {
   if (data.answer) {
     html += `<div class="answer"><h2>Answer</h2>`;
     if (data.answer.sentences.length === 0) {
-      html += `<p><em>${escapeHtml(data.answer.raw_text || "(no answer generated)")}</em></p>`;
+      html += `<p><em>${escapeHtml(data.answer.raw_text || "No answer was generated.")}</em></p>`;
     }
     for (const s of data.answer.sentences) {
       const cls = s.grounded ? "grounded" : "ungrounded";
       const badge = s.grounded
-        ? `<span class="badge">grounded (${s.support_score.toFixed(2)})</span>`
-        : `<span class="badge">ungrounded (${s.support_score.toFixed(2)})</span>`;
+        ? `<span class="badge grounded" title="Lexical overlap score: ${s.support_score.toFixed(2)}">&#10003; backed by your documents</span>`
+        : `<span class="badge ungrounded" title="Lexical overlap score: ${s.support_score.toFixed(2)}">&#9888; not clearly backed</span>`;
       html += `<div class="sentence ${cls}">${escapeHtml(s.text)} ${badge}`;
       for (const c of s.citations) {
-        html += `<span class="citation">[${escapeHtml(shortPath(c.document))}${c.page !== null ? ", p." + c.page : ""}]</span>`;
+        html += `<span class="citation">${escapeHtml(shortPath(c.document))}${c.page !== null ? ", p." + c.page : ""}</span>`;
       }
       html += `</div>`;
     }
+    html += `<div class="legend"><span class="dot g"></span>backed by a matching passage in your documents &nbsp; <span class="dot u"></span>not clearly backed — worth double-checking</div>`;
     html += `</div>`;
   }
 
-  html += `<h2>Retrieved chunks (${data.retrieved.length})</h2>`;
+  const n = data.retrieved.length;
+  html += `<details ${n > 0 ? "" : "open"}>
+    <summary>${n > 0 ? `Show the ${n} source passage${n === 1 ? "" : "s"} used above` : "Source passages"}</summary>
+    <p class="hint" style="margin-bottom: 0.75rem;">These are the exact excerpts the system found and used — check them yourself to verify the answer.</p>`;
   for (const r of data.retrieved) {
     html += `<div class="chunk">
-      <div class="meta">#${r.rank} score=${r.score.toFixed(3)} · ${escapeHtml(shortPath(r.source_document))}${r.page !== null ? ", p." + r.page : ""}${r.from_table ? ' · <span class="badge">table</span>' : ""}</div>
+      <div class="meta">${escapeHtml(shortPath(r.source_document))}${r.page !== null ? ", p." + r.page : ""}${r.from_table ? ' <span class="badge table">table</span>' : ""}</div>
       <div class="text">${escapeHtml(r.text)}</div>
     </div>`;
   }
+  if (n === 0) html += `<p class="hint">No matching passages were found.</p>`;
+  html += `</details>`;
 
   resultsEl.innerHTML = html;
 }
@@ -180,6 +486,8 @@ function escapeHtml(s) {
   div.textContent = s;
   return div.innerHTML;
 }
+
+loadDocuments();
 </script>
 </body>
 </html>
